@@ -1,12 +1,13 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import skimage.feature
+import os
 
 import features
 import processor
 import structure
 from sol1 import quantize
+import sol4
 
 
 def generate_points(img1, img2, mask1=None, mask2=None):
@@ -24,9 +25,9 @@ def generate_points(img1, img2, mask1=None, mask2=None):
     fig.show()
 
     height, width, ch = img1.shape
-    intrinsic = np.array([  # todo: put actual values here
-        [2360, 0, width / 2],
-        [0, 2360, height / 2],
+    intrinsic = np.array([
+        [1180.73916, 10.1288603, 870.449618],
+        [0, 1094.15109, 435.217448],
         [0, 0, 1]])
 
     return points1, points2, intrinsic
@@ -40,6 +41,7 @@ def run_example(img1, img2, mask1=None, mask2=None):
     # First, normalize points
     points1n = np.dot(np.linalg.inv(intrinsic), points1)
     points2n = np.dot(np.linalg.inv(intrinsic), points2)
+
     E = structure.compute_essential_normalized(points1n, points2n)
     print('Computed essential matrix:', (-E / E[0][1]))
 
@@ -75,28 +77,74 @@ def run_example(img1, img2, mask1=None, mask2=None):
     ax.view_init(elev=135, azim=90)
     plt.show()
 
+    return P1, P2, (-E / E[0][1])
+
+
+def display_image(title, img, active=True):
+    if active:
+        cv2.imshow(title, img)
+        cv2.moveWindow(title, 150, 120)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+def find_fruit(img):
+    img_copy = img.copy()
+
+    # Quantize image.
+    quantized_img, _ = quantize(img_copy.astype(np.float64) / 255, 1, 50)
+    quantized_img = (np.clip(quantized_img, 0, 1) * 255).astype(np.uint8)
+
+    # Threshold image into binary mask
+    gray_img = cv2.cvtColor(quantized_img, cv2.COLOR_BGR2GRAY)
+    _, binary_img = cv2.threshold(gray_img, 20, 255, cv2.THRESH_BINARY)
+    display_image('initial mask', binary_img)
+
+    # Find contours.
+    contours, _ = cv2.findContours(binary_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Fill in holes.
+    result = np.zeros(img.shape)
+    cv2.fillPoly(result, pts=contours, color=(255, 255, 255))
+    display_image('filled shape', result)
+
+    return result, contours
+
 
 if __name__ == '__main__':
     # Normal
-    img1 = cv2.imread('imgs/watermelon/1.png')
-    img2 = cv2.imread('imgs/watermelon/2.png')
-    run_example(img1, img2)
+    img1 = cv2.imread('images/lemon/lemon001.jpeg')
+    img2 = cv2.imread('images/lemon/lemon002.jpeg')
 
-    # Grayscale
-    img1_g = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    img2_g = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    mask1, contours1 = find_fruit(img1)
+    mask2, contours2 = find_fruit(img2)
 
-    # Quantize
-    #img1_q = (quantize(img1_g, 3, 10)[0]).astype(np.float32)
-    #img2_q = (quantize(img2_g, 3, 10)[0]).astype(np.float32)
-    #run_example(img1_q, img2_q)
+    P1, P2, E = run_example(img1, img2)
 
-    # Canny
-    # img1_canny = skimage.feature.canny(img1_g).astype(np.float32)
-    # img2_canny = skimage.feature.canny(img2_g).astype(np.float32)
-    # run_example(img1, img2, img1_canny, img2_canny)
+    # img1_copy = img1.copy()
+    # img2_copy = img2.copy()
+    # contoured_img1 = cv2.drawContours(img1_copy, contours1, -1, (0, 0, 255), 3)
+    # contoured_img2 = cv2.drawContours(img2_copy, contours2, -1, (0, 0, 255), 3)
 
-    # window_name = 'image'
-    # cv2.imshow(window_name, img1)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    # name = "lemon"
+    # ext = "jpeg"
+    # panorama_gen = sol4.PanoramicVideoGenerator(os.path.join('images', '%s') % name, name, 2, ext)
+    # panorama_gen.align_images(translation_only=False)
+    #
+    # warped_img1 = sol4.warp_image(img1, panorama_gen.homographies[0])
+    # warped_img2 = sol4.warp_image(img2, panorama_gen.homographies[1])
+    # display_image("warped1", warped_img1)
+    # display_image("warped1", warped_img2)
+    #
+    # # tripoints3d = structure.linear_triangulation(points1n, points2n, P1, P2)
+    #
+    # fig = plt.figure()
+    # fig.suptitle('3D reconstructed', fontsize=16)
+    # ax = fig.gca(projection='3d')
+    # # ax.plot(tripoints3d[0], tripoints3d[1], tripoints3d[2], 'b.')
+    # ax.set_xlabel('x axis')
+    # ax.set_ylabel('y axis')
+    # ax.set_zlabel('z axis')
+    # ax.view_init(elev=135, azim=90)
+    # plt.show()
+

@@ -396,16 +396,17 @@ class PanoramicVideoGenerator:
     Generates panorama from a set of images.
     """
 
-    def __init__(self, data_dir, file_prefix, num_images):
+    def __init__(self, data_dir, file_prefix, num_images, file_suffix):
         """
-        The naming convention for a sequence of images is file_prefixN.jpg,
+        The naming convention for a sequence of images is file_prefixN.file_suffix,
         where N is a running number 001, 002, 003...
         :param data_dir: path to input images.
         :param file_prefix: see above.
         :param num_images: number of images to produce the panoramas with.
+        :param file_suffix: see above.
         """
         self.file_prefix = file_prefix
-        self.files = [os.path.join(data_dir, '%s%03d.jpg' % (file_prefix, i + 1)) for i in range(num_images)]
+        self.files = [os.path.join(data_dir, ('%s%03d.' + file_suffix) % (file_prefix, i + 1)) for i in range(num_images)]
         self.files = list(filter(os.path.exists, self.files))
         self.panoramas = None
         self.homographies = None
