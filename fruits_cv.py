@@ -1,13 +1,11 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 import features
 import processor
 import structure
 from sol1 import quantize
-import sol4
 
 
 def generate_points(img1, img2, mask1=None, mask2=None):
@@ -88,11 +86,9 @@ def display_image(title, img, active=True):
         cv2.destroyAllWindows()
 
 
-def find_fruit(img):
-    img_copy = img.copy()
-
+def find_fruit_with_holes(img):
     # Quantize image.
-    quantized_img, _ = quantize(img_copy.astype(np.float64) / 255, 1, 50)
+    quantized_img, _ = quantize(img.astype(np.float64) / 255, 1, 50)
     quantized_img = (np.clip(quantized_img, 0, 1) * 255).astype(np.uint8)
 
     # Threshold image into binary mask
@@ -100,15 +96,48 @@ def find_fruit(img):
     _, binary_img = cv2.threshold(gray_img, 20, 255, cv2.THRESH_BINARY)
     display_image('initial mask', binary_img)
 
-    # Find contours.
+    return binary_img
+
+
+def find_fruit(img):
+    img_copy = img.copy()
+
+    # Fix small probability of failure.
+    binary_img = None
+    for _ in range(100):
+        binary_img = find_fruit_with_holes(img_copy)
+        if np.sum(binary_img) / 255 <= 0.7 * binary_img.size:
+            break
+
+    # Find contours and remove noise.
     contours, _ = cv2.findContours(binary_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [max(contours, key=cv2.contourArea)]
 
     # Fill in holes.
     result = np.zeros(img.shape)
     cv2.fillPoly(result, pts=contours, color=(255, 255, 255))
     display_image('filled shape', result)
 
-    return result, contours
+    return result.astype(bool), contours
+
+
+def apply_mask_to_fruit(img, mask):
+    masked_img = img.copy()
+    masked_img[~mask] = 0
+
+    grid = (mask.copy().astype(np.float64) * 255).astype(np.uint8)
+    grid[::16, ::16] = 128
+    grid[~mask] = 0
+
+    y_axis, x_axis, _ = np.nonzero(grid == 128)
+
+    for point in zip(x_axis, y_axis):
+        masked_img = cv2.circle(masked_img, point, radius=2, color=(0, 0, 0), thickness=-1)
+
+    display_image('masked_img', masked_img)
+
+    return masked_img
+
 
 
 if __name__ == '__main__':
@@ -116,35 +145,10 @@ if __name__ == '__main__':
     img1 = cv2.imread('images/lemon/lemon001.jpeg')
     img2 = cv2.imread('images/lemon/lemon002.jpeg')
 
-    mask1, contours1 = find_fruit(img1)
-    mask2, contours2 = find_fruit(img2)
+    mask1, _ = find_fruit(img1)
+    mask2, _ = find_fruit(img2)
 
-    P1, P2, E = run_example(img1, img2)
+    masked_img1 = apply_mask_to_fruit(img1, mask1)
+    masked_img2 = apply_mask_to_fruit(img2, mask2)
 
-    # img1_copy = img1.copy()
-    # img2_copy = img2.copy()
-    # contoured_img1 = cv2.drawContours(img1_copy, contours1, -1, (0, 0, 255), 3)
-    # contoured_img2 = cv2.drawContours(img2_copy, contours2, -1, (0, 0, 255), 3)
-
-    # name = "lemon"
-    # ext = "jpeg"
-    # panorama_gen = sol4.PanoramicVideoGenerator(os.path.join('images', '%s') % name, name, 2, ext)
-    # panorama_gen.align_images(translation_only=False)
-    #
-    # warped_img1 = sol4.warp_image(img1, panorama_gen.homographies[0])
-    # warped_img2 = sol4.warp_image(img2, panorama_gen.homographies[1])
-    # display_image("warped1", warped_img1)
-    # display_image("warped1", warped_img2)
-    #
-    # # tripoints3d = structure.linear_triangulation(points1n, points2n, P1, P2)
-    #
-    # fig = plt.figure()
-    # fig.suptitle('3D reconstructed', fontsize=16)
-    # ax = fig.gca(projection='3d')
-    # # ax.plot(tripoints3d[0], tripoints3d[1], tripoints3d[2], 'b.')
-    # ax.set_xlabel('x axis')
-    # ax.set_ylabel('y axis')
-    # ax.set_zlabel('z axis')
-    # ax.view_init(elev=135, azim=90)
-    # plt.show()
-
+    P1, P2, E = run_example(masked_img1, masked_img2)
