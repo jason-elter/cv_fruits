@@ -139,7 +139,6 @@ def apply_mask_to_fruit(img, mask):
     return masked_img
 
 
-
 if __name__ == '__main__':
     # Normal
     img1 = cv2.imread('images/lemon/lemon001.jpeg')
