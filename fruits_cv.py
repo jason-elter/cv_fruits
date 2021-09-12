@@ -8,6 +8,91 @@ import structure
 from sol1 import quantize
 
 
+def ellipsoid_fit(x, y, z, mode=''):
+    """ Fit an ellipsoid to a cloud of points using linear least squares
+        Based on Yury Petrov MATLAB algorithm: "ellipsoid_fit.m"
+    """
+
+    # X = point_data[:, 0]
+    # Y = point_data[:, 1]
+    # Z = point_data[:, 2]
+
+    X = x
+    Y = y
+    Z = z
+
+    # AlGEBRAIC EQUATION FOR ELLIPSOID, from CARTESIAN DATA
+    if mode == '':  # 9-DOF MODE
+        D = np.array([X * X + Y * Y - 2 * Z * Z,
+                      X * X + Z * Z - 2 * Y * Y,
+                      2 * X * Y, 2 * X * Z, 2 * Y * Z,
+                      2 * X, 2 * Y, 2 * Z,
+                      1 + 0 * X]).T
+
+    elif mode == 0:  # 6-DOF MODE (no rotation)
+        D = np.array([X * X + Y * Y - 2 * Z * Z,
+                      X * X + Z * Z - 2 * Y * Y,
+                      2 * X, 2 * Y, 2 * Z,
+                      1 + 0 * X]).T
+
+    # THE RIGHT-HAND-SIDE OF THE LLSQ PROBLEM
+    d2 = np.array([X * X + Y * Y + Z * Z]).T
+
+    # SOLUTION TO NORMAL SYSTEM OF EQUATIONS
+    u = np.linalg.solve(D.T.dot(D), D.T.dot(d2))
+    # chi2 = (1 - (D.dot(u)) / d2) ^ 2
+
+    # CONVERT BACK TO ALGEBRAIC FORM
+    if mode == '':  # 9-DOF-MODE
+        a = np.array([u[0] + 1 * u[1] - 1])
+        b = np.array([u[0] - 2 * u[1] - 1])
+        c = np.array([u[1] - 2 * u[0] - 1])
+        v = np.concatenate([a, b, c, u[2:, :]], axis=0).flatten()
+
+    elif mode == 0:  # 6-DOF-MODE
+        a = u[0] + 1 * u[1] - 1
+        b = u[0] - 2 * u[1] - 1
+        c = u[1] - 2 * u[0] - 1
+        zs = np.array([0, 0, 0])
+        v = np.hstack((a, b, c, zs, u[2:, :].flatten()))
+
+    else:
+        pass
+
+    # PUT IN ALGEBRAIC FORM FOR ELLIPSOID
+    A = np.array([[v[0], v[3], v[4], v[6]],
+                  [v[3], v[1], v[5], v[7]],
+                  [v[4], v[5], v[2], v[8]],
+                  [v[6], v[7], v[8], v[9]]])
+
+    # FIND CENTRE OF ELLIPSOID
+    centre = np.linalg.solve(-A[0:3, 0:3], v[6:9])
+
+    # FORM THE CORRESPONDING TRANSLATION MATRIX
+    T = np.eye(4)
+    T[3, 0:3] = centre
+
+    # TRANSLATE TO THE CENTRE, ROTATE
+    R = T.dot(A).dot(T.T)
+
+    # SOLVE THE EIGENPROBLEM
+    evals, evecs = np.linalg.eig(R[0:3, 0:3] / -R[3, 3])
+
+    # SORT EIGENVECTORS
+    # i = np.argsort(evals)
+    # evals = evals[i]
+    # evecs = evecs[:, i]
+    # evals = evals[::-1]
+    # evecs = evecs[::-1]
+
+    # CALCULATE SCALE FACTORS AND SIGNS
+    radii = np.sqrt(1 / abs(evals))
+    sgns = np.sign(evals)
+    radii *= sgns
+
+    return (centre, evecs, radii)
+
+
 def generate_points(img1, img2, mask1=None, mask2=None):
     pts1, pts2 = features.find_correspondence_points(img1, img2, mask1, mask2)
     points1 = processor.cart2hom(pts1)
@@ -75,7 +160,7 @@ def run_example(img1, img2, mask1=None, mask2=None):
     ax.view_init(elev=135, azim=90)
     plt.show()
 
-    return P1, P2, (-E / E[0][1])
+    return tripoints3d
 
 
 def display_image(title, img, active=True):
@@ -141,8 +226,8 @@ def apply_mask_to_fruit(img, mask):
 
 if __name__ == '__main__':
     # Normal
-    img1 = cv2.imread('images/lemon/lemon001.jpeg')
-    img2 = cv2.imread('images/lemon/lemon002.jpeg')
+    img1 = cv2.imread('images/apple/1.png')
+    img2 = cv2.imread('images/apple/2.png')
 
     mask1, _ = find_fruit(img1)
     mask2, _ = find_fruit(img2)
@@ -150,4 +235,8 @@ if __name__ == '__main__':
     masked_img1 = apply_mask_to_fruit(img1, mask1)
     masked_img2 = apply_mask_to_fruit(img2, mask2)
 
-    P1, P2, E = run_example(masked_img1, masked_img2)
+    tripoints3d = run_example(masked_img1, masked_img2)
+    results = ellipsoid_fit(tripoints3d[0], tripoints3d[1], tripoints3d[2])
+
+    print("(centre, evecs, radii)=", results)
+
